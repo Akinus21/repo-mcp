@@ -17,14 +17,19 @@ use uuid::Uuid;
 
 const SESSION_HEADER: &str = "Mcp-Session-Id";
 
+#[derive(Clone, serde::Deserialize)]
+pub struct GitCredential {
+    pub host: String,
+    pub username: String,
+    pub token: String,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub base_dir: PathBuf,
     pub git_author_name: String,
     pub git_author_email: String,
-    pub forgejo_host: Option<String>,
-    pub forgejo_username: Option<String>,
-    pub forgejo_token: Option<String>,
+    pub git_credentials: Vec<GitCredential>,
     pub sessions: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
@@ -46,9 +51,42 @@ async fn main() {
         std::env::var("GIT_AUTHOR_NAME").unwrap_or_else(|_| "repo-mcp".to_string());
     let git_author_email =
         std::env::var("GIT_AUTHOR_EMAIL").unwrap_or_else(|_| "repo-mcp@localhost".to_string());
-    let forgejo_host = std::env::var("FORGEJO_HOST").ok();
-    let forgejo_username = std::env::var("FORGEJO_USERNAME").ok();
-    let forgejo_token = std::env::var("FORGEJO_TOKEN").ok();
+
+    let mut git_credentials: Vec<GitCredential> = Vec::new();
+
+    // Preferred: a JSON array of { host, username, token } objects, one per
+    // git remote host — lets a single container talk to Forgejo, GitHub,
+    // etc. all at once.
+    if let Ok(raw) = std::env::var("GIT_CREDENTIALS_JSON") {
+        match serde_json::from_str::<Vec<GitCredential>>(&raw) {
+            Ok(mut parsed) => git_credentials.append(&mut parsed),
+            Err(e) => tracing::error!("failed to parse GIT_CREDENTIALS_JSON: {e}"),
+        }
+    }
+
+    // Back-compat: a single host via FORGEJO_HOST/USERNAME/TOKEN. Defensively
+    // strip any accidental scheme prefix (a real mistake made once already)
+    // since the value must be a bare hostname to match remote URLs.
+    if let (Ok(host), Ok(username), Ok(token)) = (
+        std::env::var("FORGEJO_HOST"),
+        std::env::var("FORGEJO_USERNAME"),
+        std::env::var("FORGEJO_TOKEN"),
+    ) {
+        let host = host
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/')
+            .to_string();
+        git_credentials.push(GitCredential {
+            host,
+            username,
+            token,
+        });
+    }
+
+    for cred in &git_credentials {
+        tracing::info!("configured git credential for host: {}", cred.host);
+    }
 
     std::fs::create_dir_all(&base_dir).expect("failed to create base_dir");
 
@@ -56,9 +94,7 @@ async fn main() {
         base_dir: PathBuf::from(&base_dir),
         git_author_name,
         git_author_email,
-        forgejo_host,
-        forgejo_username,
-        forgejo_token,
+        git_credentials,
         sessions: Arc::new(Mutex::new(std::collections::HashSet::new())),
     };
 

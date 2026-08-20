@@ -19,22 +19,15 @@ async fn run_git(
     // persisted global gitconfig entry that a rebuild/restart could lose.
     cmd.args(["-c", "safe.directory=*"]);
 
-    // If a Forgejo host + credentials are configured, transparently rewrite
-    // any plain https://<host>/ URL to include them. This means callers
-    // (including the agent) only ever handle bare, credential-free URLs —
-    // the token never has to appear in a clone/push argument, a prompt
-    // response, or anything an agent might echo back to a user.
-    if let (Some(host), Some(user), Some(token)) = (
-        &state.forgejo_host,
-        &state.forgejo_username,
-        &state.forgejo_token,
-    ) {
-        let plain = format!("https://{host}/");
-        let authenticated = format!("https://{user}:{token}@{host}/");
-        cmd.args([
-            "-c",
-            &format!("url.{authenticated}.insteadOf={plain}"),
-        ]);
+    // For every configured host, transparently rewrite plain https://<host>/
+    // URLs to include credentials. Callers only ever handle bare,
+    // credential-free URLs regardless of which host (Forgejo, GitHub, etc.)
+    // they're targeting — the token never appears in a clone/push argument
+    // or anything an agent might echo back.
+    for cred in &state.git_credentials {
+        let plain = format!("https://{}/", cred.host);
+        let authenticated = format!("https://{}:{}@{}/", cred.username, cred.token, cred.host);
+        cmd.args(["-c", &format!("url.{authenticated}.insteadOf={plain}")]);
     }
 
     cmd.args(args)

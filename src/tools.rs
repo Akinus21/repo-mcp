@@ -207,7 +207,7 @@ pub fn tool_list() -> Value {
         },
         {
             "name": "git_clone",
-            "description": "Clone a git repository into the repo storage area. Embed credentials in the URL if needed, e.g. https://user:token@host/org/repo.git",
+            "description": "Clone a git repository into the repo storage area. If the target is the configured Forgejo host, credentials are applied automatically — use a plain https:// URL with no embedded token or username.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

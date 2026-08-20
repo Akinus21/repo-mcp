@@ -11,13 +11,33 @@ async fn run_git(
     args: &[&str],
 ) -> Result<String, String> {
     let mut cmd = Command::new("git");
+
     // Storagebox/network-mounted repo dirs often report ownership metadata
     // that doesn't match this container's effective UID, which trips git's
     // "dubious ownership" safety check. Trust every path under our own
     // sandboxed base_dir on every invocation rather than depending on a
     // persisted global gitconfig entry that a rebuild/restart could lose.
-    cmd.args(["-c", "safe.directory=*"])
-        .args(args)
+    cmd.args(["-c", "safe.directory=*"]);
+
+    // If a Forgejo host + credentials are configured, transparently rewrite
+    // any plain https://<host>/ URL to include them. This means callers
+    // (including the agent) only ever handle bare, credential-free URLs —
+    // the token never has to appear in a clone/push argument, a prompt
+    // response, or anything an agent might echo back to a user.
+    if let (Some(host), Some(user), Some(token)) = (
+        &state.forgejo_host,
+        &state.forgejo_username,
+        &state.forgejo_token,
+    ) {
+        let plain = format!("https://{host}/");
+        let authenticated = format!("https://{user}:{token}@{host}/");
+        cmd.args([
+            "-c",
+            &format!("url.{authenticated}.insteadOf={plain}"),
+        ]);
+    }
+
+    cmd.args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 

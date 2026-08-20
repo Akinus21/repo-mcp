@@ -22,6 +22,9 @@ pub struct AppState {
     pub base_dir: PathBuf,
     pub git_author_name: String,
     pub git_author_email: String,
+    pub forgejo_host: Option<String>,
+    pub forgejo_username: Option<String>,
+    pub forgejo_token: Option<String>,
     pub sessions: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
@@ -43,6 +46,9 @@ async fn main() {
         std::env::var("GIT_AUTHOR_NAME").unwrap_or_else(|_| "repo-mcp".to_string());
     let git_author_email =
         std::env::var("GIT_AUTHOR_EMAIL").unwrap_or_else(|_| "repo-mcp@localhost".to_string());
+    let forgejo_host = std::env::var("FORGEJO_HOST").ok();
+    let forgejo_username = std::env::var("FORGEJO_USERNAME").ok();
+    let forgejo_token = std::env::var("FORGEJO_TOKEN").ok();
 
     std::fs::create_dir_all(&base_dir).expect("failed to create base_dir");
 
@@ -50,6 +56,9 @@ async fn main() {
         base_dir: PathBuf::from(&base_dir),
         git_author_name,
         git_author_email,
+        forgejo_host,
+        forgejo_username,
+        forgejo_token,
         sessions: Arc::new(Mutex::new(std::collections::HashSet::new())),
     };
 

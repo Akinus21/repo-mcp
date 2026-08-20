@@ -11,7 +11,13 @@ async fn run_git(
     args: &[&str],
 ) -> Result<String, String> {
     let mut cmd = Command::new("git");
-    cmd.args(args)
+    // Storagebox/network-mounted repo dirs often report ownership metadata
+    // that doesn't match this container's effective UID, which trips git's
+    // "dubious ownership" safety check. Trust every path under our own
+    // sandboxed base_dir on every invocation rather than depending on a
+    // persisted global gitconfig entry that a rebuild/restart could lose.
+    cmd.args(["-c", "safe.directory=*"])
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 

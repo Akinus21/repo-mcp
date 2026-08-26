@@ -1,3 +1,4 @@
+mod exec_tools;
 mod fs_tools;
 mod git_tools;
 mod tools;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub git_author_email: String,
     pub git_credentials: Vec<GitCredential>,
     pub sessions: Arc<Mutex<std::collections::HashSet<String>>>,
+    pub exec_enabled: bool,
 }
 
 #[tokio::main]
@@ -88,6 +90,18 @@ async fn main() {
         tracing::info!("configured git credential for host: {}", cred.host);
     }
 
+    // exec_command runs arbitrary shell in the sandboxed base_dir — a wider
+    // surface than the fs/git tools, so it's opt-in rather than on by
+    // default. Set REPO_MCP_EXEC_ENABLED=true to allow it.
+    let exec_enabled = std::env::var("REPO_MCP_EXEC_ENABLED")
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if exec_enabled {
+        tracing::info!("exec_command is ENABLED — arbitrary shell commands will run in base_dir");
+    } else {
+        tracing::info!("exec_command is disabled (set REPO_MCP_EXEC_ENABLED=true to enable)");
+    }
+
     std::fs::create_dir_all(&base_dir).expect("failed to create base_dir");
 
     let state = AppState {
@@ -96,6 +110,7 @@ async fn main() {
         git_author_email,
         git_credentials,
         sessions: Arc::new(Mutex::new(std::collections::HashSet::new())),
+        exec_enabled,
     };
 
     let app = Router::new()

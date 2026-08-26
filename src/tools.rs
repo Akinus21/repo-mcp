@@ -1,6 +1,10 @@
 use serde_json::{json, Value};
 
-use crate::{fs_tools, git_tools, AppState};
+use crate::{exec_tools, fs_tools, git_tools, AppState};
+
+fn arg_u64_opt(args: &Value, key: &str) -> Option<u64> {
+    args.get(key).and_then(|v| v.as_u64())
+}
 
 fn arg_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
@@ -54,6 +58,35 @@ pub async fn dispatch(state: &AppState, name: &str, args: &Value) -> Result<Stri
             arg_str(args, "path")?,
             arg_str(args, "pattern")?,
         ),
+        "edit_file" => fs_tools::edit_file(
+            state,
+            arg_str(args, "path")?,
+            arg_str(args, "old_str")?,
+            arg_str(args, "new_str")?,
+        ),
+        "grep_content" => fs_tools::grep_content(
+            state,
+            arg_str(args, "path")?,
+            arg_str(args, "pattern")?,
+        ),
+
+        // --- exec ---
+        "exec_command" => {
+            if !state.exec_enabled {
+                return Err(
+                    "exec_command is disabled on this server (REPO_MCP_EXEC_ENABLED is not set to true) — \
+                     ask the operator to enable it if running tests/builds/lints is genuinely needed for this task"
+                        .to_string(),
+                );
+            }
+            exec_tools::exec_command(
+                state,
+                arg_str(args, "repo_path")?,
+                arg_str(args, "command")?,
+                arg_u64_opt(args, "timeout_secs"),
+            )
+            .await
+        }
 
         // --- git ---
         "git_clone" => {
@@ -203,6 +236,44 @@ pub fn tool_list() -> Value {
                     "pattern": { "type": "string", "description": "Substring to match against file/directory names (case-insensitive)." }
                 },
                 "required": ["path", "pattern"]
+            }
+        },
+        {
+            "name": "edit_file",
+            "description": "Make a targeted single-location edit to an existing file WITHOUT rewriting the rest of it. old_str must match the current file content in exactly one place, including whitespace — if it matches zero or more than one location, the edit is rejected so you can widen old_str with more surrounding context. Always fs_read_file immediately before calling this, and construct old_str/new_str from that fresh read, not from an earlier read or from memory. Prefer this over fs_write_file for any change to an existing file that isn't a full-file rewrite.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" },
+                    "old_str": { "type": "string", "description": "Exact text to replace, unique within the file." },
+                    "new_str": { "type": "string", "description": "Replacement text." }
+                },
+                "required": ["path", "old_str", "new_str"]
+            }
+        },
+        {
+            "name": "grep_content",
+            "description": "Recursively search file CONTENTS (not filenames — see fs_search_files for that) for a substring, returning matching lines with file path and line number. Case-insensitive. Use this to locate where in a repo something is actually defined or referenced before editing it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Directory to search within." },
+                    "pattern": { "type": "string", "description": "Substring to search for within file contents." }
+                },
+                "required": ["path", "pattern"]
+            }
+        },
+        {
+            "name": "exec_command",
+            "description": "Run a shell command with its working directory inside the repo storage area (e.g. run tests, a linter, a build, or a read-only verification command like curl). Disabled unless the server operator has explicitly enabled it. Bounded by a hard timeout — a command that exceeds it is killed and reported as timed out, not left running. Prefer the dedicated fs_*/git_* tools over exec_command for anything they already cover (don't use exec_command to cat/edit/grep a file, or to run raw git plumbing that git_* already exposes).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo_path": { "type": "string", "description": "Working directory for the command, relative to the repo storage root." },
+                    "command": { "type": "string", "description": "Shell command to run via `bash -c`." },
+                    "timeout_secs": { "type": "integer", "description": "Optional timeout override in seconds (default 120, max 900)." }
+                },
+                "required": ["repo_path", "command"]
             }
         },
         {

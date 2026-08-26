@@ -92,6 +92,79 @@ pub fn move_path(state: &AppState, src: &str, dest: &str) -> Result<String, Stri
     Ok(format!("moved {} -> {}", src, dest))
 }
 
+/// Targeted single-match replace. Rejects if `old_str` matches zero or
+/// more than one location in the file — the caller must widen `old_str`
+/// with surrounding context to make it unique. This exists specifically
+/// so small edits never require reconstructing or overwriting a whole
+/// file: `write_file` should be reserved for genuinely new files or
+/// full-file rewrites, not incremental fixes.
+pub fn edit_file(state: &AppState, path: &str, old_str: &str, new_str: &str) -> Result<String, String> {
+    let p = resolve(state, path)?;
+    let content = std::fs::read_to_string(&p).map_err(|e| format!("read failed: {e}"))?;
+
+    let matches = content.matches(old_str).count();
+    if matches == 0 {
+        return Err(format!(
+            "old_str not found in {path} — re-read the file and copy the exact text, including whitespace"
+        ));
+    }
+    if matches > 1 {
+        return Err(format!(
+            "old_str matches {matches} locations in {path} — widen old_str with surrounding context so it matches exactly one place"
+        ));
+    }
+
+    let updated = content.replacen(old_str, new_str, 1);
+    std::fs::write(&p, &updated).map_err(|e| format!("write failed: {e}"))?;
+    Ok(format!(
+        "edited {path}: replaced 1 occurrence ({} bytes -> {} bytes)",
+        content.len(),
+        updated.len()
+    ))
+}
+
+/// Grep-style content search across a directory tree — distinct from
+/// `search_files`, which matches on filename only. Returns matching
+/// lines with file path and line number, capped to avoid flooding the
+/// response on a broad pattern.
+pub fn grep_content(state: &AppState, path: &str, pattern: &str) -> Result<String, String> {
+    let p = resolve(state, path)?;
+    let base = state.base_dir.canonicalize().map_err(|e| e.to_string())?;
+    let pattern_lower = pattern.to_lowercase();
+    let mut matches = vec![];
+    const MAX_MATCHES: usize = 200;
+
+    for entry in walkdir::WalkDir::new(&p)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let rel = match entry.path().strip_prefix(&base) {
+            Ok(r) => r.to_string_lossy().to_string(),
+            Err(_) => continue,
+        };
+        let text = match std::fs::read_to_string(entry.path()) {
+            Ok(t) => t,
+            Err(_) => continue, // skip binary/unreadable files
+        };
+        for (i, line) in text.lines().enumerate() {
+            if line.to_lowercase().contains(&pattern_lower) {
+                matches.push(format!("{rel}:{}: {}", i + 1, line.trim()));
+                if matches.len() >= MAX_MATCHES {
+                    matches.push(format!("... capped at {MAX_MATCHES} matches, narrow the pattern or path"));
+                    return Ok(matches.join("\n"));
+                }
+            }
+        }
+    }
+
+    if matches.is_empty() {
+        Ok("no matches".to_string())
+    } else {
+        Ok(matches.join("\n"))
+    }
+}
+
 pub fn search_files(state: &AppState, path: &str, pattern: &str) -> Result<String, String> {
     let p = resolve(state, path)?;
     let mut matches = vec![];

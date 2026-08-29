@@ -23,6 +23,18 @@ pub struct GitCredential {
     pub host: String,
     pub username: String,
     pub token: String,
+    /// "https" or "http". Defaults to "https" so existing configs (GitHub,
+    /// a Caddy-fronted public host) are unaffected. Internal/mesh hosts that
+    /// aren't TLS-terminated at that port (e.g. hitting a Forgejo container
+    /// directly on its plain-HTTP port rather than through Caddy) need this
+    /// set to "http" explicitly — the previous hardcoded "https://" prefix
+    /// made it impossible to ever match such a host correctly.
+    #[serde(default = "default_scheme")]
+    pub scheme: String,
+}
+
+fn default_scheme() -> String {
+    "https".to_string()
 }
 
 #[derive(Clone)]
@@ -83,6 +95,7 @@ async fn main() {
             host,
             username,
             token,
+            scheme: default_scheme(),
         });
     }
 

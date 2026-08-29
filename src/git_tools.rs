@@ -25,8 +25,11 @@ async fn run_git(
     // they're targeting — the token never appears in a clone/push argument
     // or anything an agent might echo back.
     for cred in &state.git_credentials {
-        let plain = format!("https://{}/", cred.host);
-        let authenticated = format!("https://{}:{}@{}/", cred.username, cred.token, cred.host);
+        let plain = format!("{}://{}/", cred.scheme, cred.host);
+        let authenticated = format!(
+            "{}://{}:{}@{}/",
+            cred.scheme, cred.username, cred.token, cred.host
+        );
         cmd.args(["-c", &format!("url.{authenticated}.insteadOf={plain}")]);
     }
 

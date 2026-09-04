@@ -11,17 +11,21 @@ RUN touch src/main.rs && cargo build --release
 
 FROM debian:bookworm-slim
 
-# Install GitHub CLI (gh) — must be done before the apt sources list is cleared
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl gnupg2 \
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages" > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update
+# Install ca-certificates FIRST so curl can verify HTTPS
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl gnupg2 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Full git-repo toolchain
-RUN apt-get install -y --no-install-recommends \
+# Download GitHub CLI GPG key and set up signed APT source
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages" \
+        > /etc/apt/sources.list.d/github-cli.list
+
+# Update with the new source, then install all tools in one layer
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
         git ca-certificates gh \
         curl wget ripgrep tree \
         openssh-client git-lfs \
